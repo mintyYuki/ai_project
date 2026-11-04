@@ -1,0 +1,5 @@
+model: gemini-3.5-flash-lite
+git: true
+auto-commits: true
+stream: true
+dark-mode: true
