@@ -3,3 +3,6 @@ git: true
 auto-commits: true
 stream: true
 dark-mode: true
+gitignore: false
+chat-history-file: docs/prompts/aider.chat.history.md
+input-history-file: docs/prompts/aider.input.history
