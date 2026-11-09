@@ -13,6 +13,7 @@ Roles are represented as enums in the database in English (`client`, `mechanic`,
 ## 2. Database Schema (PostgreSQL)
 - Database runs on PostgreSQL, standard port, managed via systemd.
 - Connection user: `postgres`, no password.
+- Database name: `carservice`.
 - Transactions are enforced on backend operations to prevent partial/corrupted states.
 - Field types: `VARCHAR` is preferred over `TEXT` where lengths are bounded. `ENUM` types are preferred over `VARCHAR` where values are strictly known beforehand.
 - Foreign key relations are established between tables.
@@ -56,7 +57,7 @@ Stores booking and appointment information.
 - `end_at`: Timestamp (Calculated based on service `duration_minutes` without hacks)
 - `status`: ENUM (`created`, `confirmed`, `completed`, `cancelled`)
 
-*Business rule:* A single mechanic's bookings must not overlap in time (`start_at` / `end_at` intervals must not intersect for the same `mechanic_id`).
+*Business rule:* A single mechanic's bookings must not overlap in time (`start_at` / `end_at` intervals must not intersect for the same `mechanic_id`). To prevent race conditions and double-booking during concurrent creation requests, `SELECT ... FOR UPDATE` row-level locking must be utilized on the mechanic/booking records inside a transaction.
 
 ### 2.6. `action_logs`
 Audit log for tracking system actions.
@@ -77,7 +78,7 @@ Audit log for tracking system actions.
 
 ### 3.2. Endpoints & Functionality
 - **Catalog:** Public or authenticated access to view available services and mechanics.
-- **Bookings Creation:** Allows clients to book services. Includes strict validation logic to check that the selected mechanic is not busy during the requested time slot (preventing time overlaps).
+- **Bookings Creation:** Allows clients to book services. Includes strict validation logic utilizing `SELECT FOR UPDATE` to check that the selected mechanic is not busy during the requested time slot (preventing time overlaps and double-booking).
 - **Client Panel:** View personal bookings and cancel them.
 - **Mechanic Panel:** View assigned bookings and update their statuses.
 - **Administrator Panel:** Comprehensive catalog management, user management, and a SQL report exportable to CSV.

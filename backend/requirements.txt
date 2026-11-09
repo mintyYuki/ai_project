@@ -1,0 +1,9 @@
+fastapi
+unicorn
+sqlalchemy
+psycopg2
+pydantic
+pyjwt
+bcrypt
+httpx
+pytest
