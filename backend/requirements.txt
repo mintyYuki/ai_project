@@ -7,3 +7,4 @@ pyjwt
 bcrypt
 httpx
 pytest
+alembic

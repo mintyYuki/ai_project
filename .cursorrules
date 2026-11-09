@@ -1,0 +1,8 @@
+# Project Rules & Guidelines
+
+1. **Directory Structure:**
+   - All backend-related code must reside strictly inside `backend/`.
+   - All frontend-related code must reside strictly inside `frontend/`.
+
+2. **Explicit Error Reporting:**
+   - If any requested feature, instruction, or task cannot be fulfilled or executed for any reason, you must explicitly state what cannot be done and why, rather than silently omitting or ignoring it.
