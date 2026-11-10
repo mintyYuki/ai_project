@@ -1,2 +1,6 @@
 .env
 .aider.tags.cache.v4/
+**/venv/
+**/node_modules/
+**/.pnpm-store/
+**/.pnpm/
