@@ -1,10 +1,12 @@
 from datetime import datetime, timedelta, timezone
-from fastapi import FastAPI, Depends, HTTPException, status, Body
+from typing import Optional
+from fastapi import FastAPI, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
+from sqlalchemy import and_, or_
 from pydantic import BaseModel, EmailStr
 
 from database import get_db
-from models import User, RefreshToken, UserRole
+from models import User, RefreshToken, UserRole, Service, Mechanic, Booking, BookingStatus
 from auth import (
     get_password_hash,
     verify_password,
@@ -13,6 +15,7 @@ from auth import (
     decode_token,
     hash_token,
     get_current_user,
+    require_role,
     REFRESH_TOKEN_EXPIRE_DAYS
 )
 
@@ -37,6 +40,11 @@ class RefreshRequest(BaseModel):
 
 class LogoutRequest(BaseModel):
     refresh_token: str
+
+class BookingCreate(BaseModel):
+    mechanic_id: int
+    service_id: int
+    start_at: datetime
 
 @app.get("/")
 def read_root():
@@ -158,3 +166,141 @@ def logout(body: LogoutRequest, db: Session = Depends(get_db), current_user: Use
         db.commit()
         
     return {"message": "Logged out successfully"}
+
+@app.get("/api/services")
+def list_services(
+    limit: int = Query(10, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db)
+):
+    services = db.query(Service).offset(offset).limit(limit).all()
+    return services
+
+@app.get("/api/mechanics")
+def list_mechanics(
+    limit: int = Query(10, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db)
+):
+    mechanics = db.query(Mechanic).offset(offset).limit(limit).all()
+    return mechanics
+
+@app.post("/api/bookings", status_code=status.HTTP_201_CREATED)
+def create_booking(
+    booking_data: BookingCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.client))
+):
+    # Validate mechanic exists
+    mechanic = db.query(Mechanic).filter(Mechanic.id == booking_data.mechanic_id).first()
+    if not mechanic:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mechanic not found")
+        
+    # Validate service exists
+    service = db.query(Service).filter(Service.id == booking_data.service_id).first()
+    if not service:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service not found")
+        
+    start_at = booking_data.start_at
+    if start_at.tzinfo is None:
+        start_at = start_at.replace(tzinfo=timezone.utc)
+        
+    if start_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot book in the past")
+        
+    end_at = start_at + timedelta(minutes=service.duration_minutes)
+    
+    try:
+        # Use transaction and SELECT ... FOR UPDATE to avoid race conditions and double booking
+        db.begin_nested()
+        
+        # Lock mechanic rows or use table/row lock logic.
+        # SQLAlchemy query with with_for_update()
+        existing_mechanic = db.query(Mechanic).filter(Mechanic.id == booking_data.mechanic_id).with_for_update().first()
+        if not existing_mechanic:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mechanic not found")
+            
+        # Check overlapping bookings for the mechanic
+        overlap = db.query(Booking).filter(
+            Booking.mechanic_id == booking_data.mechanic_id,
+            Booking.status.in_([BookingStatus.created, BookingStatus.confirmed]),
+            or_(
+                and_(Booking.start_at <= start_at, Booking.end_at > start_at),
+                and_(Booking.start_at < end_at, Booking.end_at >= end_at),
+                and_(Booking.start_at >= start_at, Booking.end_at <= end_at)
+            )
+        ).with_for_update().first()
+        
+        if overlap:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Mechanic is already booked for this time interval"
+            )
+            
+        new_booking = Booking(
+            client_id=current_user.id,
+            mechanic_id=booking_data.mechanic_id,
+            service_id=booking_data.service_id,
+            start_at=start_at,
+            end_at=end_at,
+            status=BookingStatus.created
+        )
+        db.add(new_booking)
+        db.commit()
+        db.refresh(new_booking)
+        
+        return {
+            "message": "Booking created successfully",
+            "booking_id": new_booking.id,
+            "start_at": new_booking.start_at,
+            "end_at": new_booking.end_at,
+            "status": new_booking.status
+        }
+    except HTTPException as he:
+        db.rollback()
+        raise he
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+@app.get("/api/bookings/my")
+def get_my_bookings(
+    limit: int = Query(10, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    query = db.query(Booking)
+    if current_user.role == UserRole.client:
+        query = query.filter(Booking.client_id == current_user.id)
+    elif current_user.role == UserRole.mechanic:
+        mechanic = db.query(Mechanic).filter(Mechanic.user_id == current_user.id).first()
+        if mechanic:
+            query = query.filter(Booking.mechanic_id == mechanic.id)
+        else:
+            return []
+            
+    bookings = query.offset(offset).limit(limit).all()
+    return bookings
+
+@app.post("/api/bookings/{booking_id}/cancel")
+def cancel_booking(
+    booking_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    booking = db.query(Booking).filter(Booking.id == booking_id).first()
+    if not booking:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found")
+        
+    # Check permissions: client who made it or admin or mechanic assigned
+    if current_user.role == UserRole.client and booking.client_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to cancel this booking")
+    
+    if booking.status == BookingStatus.cancelled:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Booking is already cancelled")
+        
+    booking.status = BookingStatus.cancelled
+    db.commit()
+    
+    return {"message": "Booking cancelled successfully", "booking_id": booking.id}
