@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date
 from typing import Optional
 from fastapi import FastAPI, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
@@ -6,7 +6,7 @@ from sqlalchemy import and_, or_
 from pydantic import BaseModel, EmailStr
 
 from database import get_db
-from models import User, RefreshToken, UserRole, Service, Mechanic, Booking, BookingStatus
+from models import User, RefreshToken, UserRole, Service, Mechanic, Booking, BookingStatus, ActionLog
 from auth import (
     get_password_hash,
     verify_password,
@@ -45,6 +45,17 @@ class BookingCreate(BaseModel):
     mechanic_id: int
     service_id: int
     start_at: datetime
+
+class StatusChangeRequest(BaseModel):
+    status: BookingStatus
+
+# Valid state transitions mapping
+VALID_TRANSITIONS = {
+    BookingStatus.created: [BookingStatus.confirmed, BookingStatus.cancelled],
+    BookingStatus.confirmed: [BookingStatus.completed, BookingStatus.cancelled],
+    BookingStatus.completed: [],
+    BookingStatus.cancelled: []
+}
 
 @app.get("/")
 def read_root():
@@ -211,16 +222,12 @@ def create_booking(
     end_at = start_at + timedelta(minutes=service.duration_minutes)
     
     try:
-        # Use transaction and SELECT ... FOR UPDATE to avoid race conditions and double booking
         db.begin_nested()
         
-        # Lock mechanic rows or use table/row lock logic.
-        # SQLAlchemy query with with_for_update()
         existing_mechanic = db.query(Mechanic).filter(Mechanic.id == booking_data.mechanic_id).with_for_update().first()
         if not existing_mechanic:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mechanic not found")
             
-        # Check overlapping bookings for the mechanic
         overlap = db.query(Booking).filter(
             Booking.mechanic_id == booking_data.mechanic_id,
             Booking.status.in_([BookingStatus.created, BookingStatus.confirmed]),
@@ -246,6 +253,15 @@ def create_booking(
             status=BookingStatus.created
         )
         db.add(new_booking)
+        
+        # Log action
+        action_log = ActionLog(
+            user_id=current_user.id,
+            action="CREATE_BOOKING",
+            details=f"Booking {new_booking.id} created for mechanic {booking_data.mechanic_id}"
+        )
+        db.add(action_log)
+        
         db.commit()
         db.refresh(new_booking)
         
@@ -283,6 +299,87 @@ def get_my_bookings(
     bookings = query.offset(offset).limit(limit).all()
     return bookings
 
+@app.get("/api/mechanics/bookings")
+def get_mechanic_bookings_by_date(
+    date: str = Query(..., description="Date in DD-MM-YYYY format"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.mechanic))
+):
+    try:
+        parsed_date = datetime.strptime(date, "%d-%m-%Y").date()
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid date format, use DD-MM-YYYY")
+        
+    mechanic = db.query(Mechanic).filter(Mechanic.user_id == current_user.id).first()
+    if not mechanic:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mechanic profile not found for current user")
+        
+    start_of_day = datetime.combine(parsed_date, datetime.min.time()).replace(tzinfo=timezone.utc)
+    end_of_day = datetime.combine(parsed_date, datetime.max.time()).replace(tzinfo=timezone.utc)
+    
+    bookings = db.query(Booking).filter(
+        Booking.mechanic_id == mechanic.id,
+        Booking.start_at >= start_of_day,
+        Booking.start_at <= end_of_day
+    ).all()
+    
+    return bookings
+
+@app.post("/api/bookings/{booking_id}/status")
+def change_booking_status(
+    booking_id: int,
+    body: StatusChangeRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    if current_user.role not in [UserRole.mechanic, UserRole.administrator]:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only mechanics or administrators can change booking status")
+        
+    booking = db.query(Booking).filter(Booking.id == booking_id).first()
+    if not booking:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found")
+        
+    if current_user.role == UserRole.mechanic:
+        mechanic = db.query(Mechanic).filter(Mechanic.user_id == current_user.id).first()
+        if not mechanic or booking.mechanic_id != mechanic.id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Mechanic can only update their own bookings")
+            
+    old_status = booking.status
+    new_status = body.status
+    
+    if new_status not in VALID_TRANSITIONS.get(old_status, []):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid status transition from {old_status} to {new_status}"
+        )
+        
+    try:
+        db.begin_nested()
+        
+        booking.status = new_status
+        
+        action_log = ActionLog(
+            user_id=current_user.id,
+            action="CHANGE_BOOKING_STATUS",
+            details=f"Booking {booking.id} status changed from {old_status} to {new_status}"
+        )
+        db.add(action_log)
+        
+        db.commit()
+        db.refresh(booking)
+        
+        return {
+            "message": "Booking status updated successfully",
+            "booking_id": booking.id,
+            "previous_status": old_status,
+            "new_status": booking.status,
+            "updated_by": current_user.id,
+            "timestamp": datetime.now(timezone.utc)
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
 @app.post("/api/bookings/{booking_id}/cancel")
 def cancel_booking(
     booking_id: int,
@@ -293,14 +390,31 @@ def cancel_booking(
     if not booking:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found")
         
-    # Check permissions: client who made it or admin or mechanic assigned
     if current_user.role == UserRole.client and booking.client_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to cancel this booking")
     
-    if booking.status == BookingStatus.cancelled:
+    old_status = booking.status
+    if old_status == BookingStatus.cancelled:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Booking is already cancelled")
         
-    booking.status = BookingStatus.cancelled
-    db.commit()
-    
-    return {"message": "Booking cancelled successfully", "booking_id": booking.id}
+    if BookingStatus.cancelled not in VALID_TRANSITIONS.get(old_status, []):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Cannot cancel booking in status {old_status}")
+        
+    try:
+        db.begin_nested()
+        booking.status = BookingStatus.cancelled
+        
+        action_log = ActionLog(
+            user_id=current_user.id,
+            action="CANCEL_BOOKING",
+            details=f"Booking {booking.id} cancelled from status {old_status}"
+        )
+        db.add(action_log)
+        
+        db.commit()
+        db.refresh(booking)
+        
+        return {"message": "Booking cancelled successfully", "booking_id": booking.id, "status": booking.status}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
