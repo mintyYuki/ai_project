@@ -653,3 +653,597 @@ else:
 > Applied edit to backend/alembic/env.py  
 > Commit 82b90c4 feat: import models in alembic env.py for autogenerate support  
 > You can use /undo to undo and discard each aider commit.  
+
+# aider chat started at 2026-11-11 11:52:04
+
+> /home/yuki/.local/bin/aider --no-gitignore --no-show-model-warnings  
+> Aider v0.86.3.dev53+g5dc9490bb  
+> Model: gemini/gemini-3.5-flash-lite with whole edit format  
+> Git repo: .git with 18 files  
+> Repo-map: using 4096 tokens, auto refresh  
+
+#### /add backend/database.py backend/models.py backend/main.py  
+> Added backend/database.py to the chat  
+> Added backend/main.py to the chat  
+> Added backend/models.py to the chat  
+
+#### сделай систему авторизации на базе JWT в backend/. также нужно чтобы ты создал backend/auth.py - а там будет хеширование паролей на базе bcrypt, и работа с JWT - генерация, проверка, и т.д. - access токен на 15 минут, рефреш на 7 дней (expiration date). эндпоинты в fastapi (backend/main.py) будут такими - /api/auth/register, /api/auth/login, и также для refresh и logout. при логине сохраняем хэш рефреш токена в таблицу refresh_tokens. при выходе помечаем токен как revoked. при рефреш мы чекаем токен в базе - если токен невалидный (просрочен либо был отозван) то возвращаем 401. также нужно проверять роль и текущего пользователя по access токену - с помощью Depends.  
+
+I will implement a JWT-based authentication system in the backend. 
+This will involve:
+1. Creating `backend/auth.py` for password hashing using `bcrypt` and JWT token creation/verification logic (access token for 15 minutes, refresh token for 7 days).
+2. Updating `backend/main.py` to add the authentication endpoints (`/api/auth/register`, `/api/auth/login`, `/api/auth/refresh`, `/api/auth/logout`), along with dependency functions for getting the current user and checking roles.
+
+First, let's create `backend/auth.py`.
+
+backend/auth.py
+```python
+import os
+import hashlib
+from datetime import datetime, timedelta, timezone
+from typing import Optional
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+from fastapi import Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
+from sqlalchemy.orm import Session
+from database import get_db
+from models import User, RefreshToken, UserRole
+
+SECRET_KEY = os.getenv("SECRET_KEY", "super-secret-key-change-me")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 15
+REFRESH_TOKEN_EXPIRE_DAYS = 7
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password, hashed_password)
+
+def get_password_hash(password: str) -> str:
+    return pwd_context.hash(password)
+
+def hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    to_encode.update({"exp": expire, "type": "access"})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
+    to_encode.update({"exp": expire, "type": "refresh"})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+def decode_token(token: str) -> dict:
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
+    payload = decode_token(token)
+    if payload.get("type") != "access":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type")
+    
+    user_id: int = payload.get("sub")
+    if user_id is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate credentials")
+        
+    user = db.query(User).filter(User.id == user_id).first()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    return user
+
+def require_role(required_role: UserRole):
+    def role_dependency(current_user: User = Depends(get_current_user)) -> User:
+        if current_user.role != required_role and current_user.role != UserRole.administrator:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Operation not permitted for this role"
+            )
+        return current_user
+    return role_dependency
+```
+
+Now, let's update `backend/main.py` to include the authentication endpoints and schemas.
+
+backend/main.py
+```python
+from datetime import datetime, timedelta, timezone
+from fastapi import FastAPI, Depends, HTTPException, status, Body
+from sqlalchemy.orm import Session
+from pydantic import BaseModel, EmailStr
+
+from database import get_db
+from models import User, RefreshToken, UserRole
+from auth import (
+    get_password_hash,
+    verify_password,
+    create_access_token,
+    create_refresh_token,
+    decode_token,
+    hash_token,
+    get_current_user,
+    REFRESH_TOKEN_EXPIRE_DAYS
+)
+
+app = FastAPI(title="Car Service API", version="1.0.0")
+
+class UserRegister(BaseModel):
+    email: EmailStr
+    password: str
+    role: UserRole
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+class TokenResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+class LogoutRequest(BaseModel):
+    refresh_token: str
+
+@app.get("/")
+def read_root():
+    return {"message": "Welcome to Car Service API"}
+
+@app.post("/api/auth/register", status_code=status.HTTP_201_CREATED)
+def register(user_data: UserRegister, db: Session = Depends(get_db)):
+    existing_user = db.query(User).filter(User.email == user_data.email).first()
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already registered"
+        )
+    
+    hashed_password = get_password_hash(user_data.password)
+    new_user = User(
+        email=user_data.email,
+        password=hashed_password,
+        role=user_data.role
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    
+    return {"message": "User registered successfully", "user_id": new_user.id, "email": new_user.email}
+
+@app.post("/api/auth/login", response_model=TokenResponse)
+def login(credentials: UserLogin, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == credentials.email).first()
+    if not user or not verify_password(credentials.password, user.password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    access_token = create_access_token(data={"sub": user.id, "role": user.role.value})
+    refresh_token_str = create_refresh_token(data={"sub": user.id})
+    
+    # Save refresh token hash in db
+    token_hash = hash_token(refresh_token_str)
+    expires_at = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    
+    db_refresh_token = RefreshToken(
+        user_id=user.id,
+        token_hash=token_hash,
+        expires_at=expires_at,
+        revoked=False
+    )
+    db.add(db_refresh_token)
+    db.commit()
+    
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token_str,
+        "token_type": "bearer"
+    }
+
+@app.post("/api/auth/refresh", response_model=TokenResponse)
+def refresh_token(body: RefreshRequest, db: Session = Depends(get_db)):
+    payload = decode_token(body.refresh_token)
+    if payload.get("type") != "refresh":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type")
+    
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        
+    token_hash = hash_token(body.refresh_token)
+    db_token = db.query(RefreshToken).filter(
+        RefreshToken.user_id == user_id,
+        RefreshToken.token_hash == token_hash
+    ).first()
+    
+    if not db_token or db_token.revoked:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has been revoked or is invalid")
+        
+    if db_token.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has expired")
+        
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+        
+    # Rotate refresh token: revoke old one and issue a new pair
+    db_token.revoked = True
+    
+    new_access_token = create_access_token(data={"sub": user.id, "role": user.role.value})
+    new_refresh_token_str = create_refresh_token(data={"sub": user.id})
+    
+    new_token_hash = hash_token(new_refresh_token_str)
+    new_expires_at = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    
+    new_db_refresh_token = RefreshToken(
+        user_id=user.id,
+        token_hash=new_token_hash,
+        expires_at=new_expires_at,
+        revoked=False
+    )
+    db.add(new_db_refresh_token)
+    db.commit()
+    
+    return {
+        "access_token": new_access_token,
+        "refresh_token": new_refresh_token_str,
+        "token_type": "bearer"
+    }
+
+@app.post("/api/auth/logout")
+def logout(body: LogoutRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    token_hash = hash_token(body.refresh_token)
+    db_token = db.query(RefreshToken).filter(
+        RefreshToken.user_id == current_user.id,
+        RefreshToken.token_hash == token_hash
+    ).first()
+    
+    if db_token:
+        db_token.revoked = True
+        db.commit()
+        
+    return {"message": "Logged out successfully"}
+```
+
+> Tokens: 1.9k sent, 2.0k received. Cost: $0.0056 message, $0.0056 session.  
+> backend/auth.py  
+> Create new file? (Y)es/(N)o [Yes]: y  
+> Applied edit to backend/auth.py  
+> Applied edit to backend/main.py  
+> Commit cc3ac0e feat: implement JWT authentication and user management endpoints  
+> You can use /undo to undo and discard each aider commit.  
+
+#### теперь нужны ещё эндпоинты. get /api/services - список доступных услуг, и get /api/mechanics. затем post /api/bookings - это будет создание брони. принцип - юзер(клиент) выбирает механика, услугу, время начала. длительность (и, соответственно, время окончания брони) будет высчитываться с помощью `duration_minutes` конкретной выбранной услуги. также не забудь использовать select ... for update для защиты от двойного бронирования. при этом гет эндпоинты будут иметь limit/offset (передаваться будут через query string). также нужен хендлинг конфликтов. также клиент должен иметь возможность смотреть свои брони - через get /api/bookings/my ну и отменять их post запросом на /api/bookings/айди/cancel)  
+
+I will now update `backend/main.py` to add endpoints for services, mechanics, bookings creation (with locking via `for update` and duplicate/overlap prevention), viewing client's bookings with limit/offset, and cancelling a booking.
+
+backend/main.py
+```python
+from datetime import datetime, timedelta, timezone
+from typing import Optional
+from fastapi import FastAPI, Depends, HTTPException, status, Query
+from sqlalchemy.orm import Session
+from sqlalchemy import and_, or_
+from pydantic import BaseModel, EmailStr
+
+from database import get_db
+from models import User, RefreshToken, UserRole, Service, Mechanic, Booking, BookingStatus
+from auth import (
+    get_password_hash,
+    verify_password,
+    create_access_token,
+    create_refresh_token,
+    decode_token,
+    hash_token,
+    get_current_user,
+    require_role,
+    REFRESH_TOKEN_EXPIRE_DAYS
+)
+
+app = FastAPI(title="Car Service API", version="1.0.0")
+
+class UserRegister(BaseModel):
+    email: EmailStr
+    password: str
+    role: UserRole
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+class TokenResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+class LogoutRequest(BaseModel):
+    refresh_token: str
+
+class BookingCreate(BaseModel):
+    mechanic_id: int
+    service_id: int
+    start_at: datetime
+
+@app.get("/")
+def read_root():
+    return {"message": "Welcome to Car Service API"}
+
+@app.post("/api/auth/register", status_code=status.HTTP_201_CREATED)
+def register(user_data: UserRegister, db: Session = Depends(get_db)):
+    existing_user = db.query(User).filter(User.email == user_data.email).first()
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already registered"
+        )
+    
+    hashed_password = get_password_hash(user_data.password)
+    new_user = User(
+        email=user_data.email,
+        password=hashed_password,
+        role=user_data.role
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    
+    return {"message": "User registered successfully", "user_id": new_user.id, "email": new_user.email}
+
+@app.post("/api/auth/login", response_model=TokenResponse)
+def login(credentials: UserLogin, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == credentials.email).first()
+    if not user or not verify_password(credentials.password, user.password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    access_token = create_access_token(data={"sub": user.id, "role": user.role.value})
+    refresh_token_str = create_refresh_token(data={"sub": user.id})
+    
+    # Save refresh token hash in db
+    token_hash = hash_token(refresh_token_str)
+    expires_at = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    
+    db_refresh_token = RefreshToken(
+        user_id=user.id,
+        token_hash=token_hash,
+        expires_at=expires_at,
+        revoked=False
+    )
+    db.add(db_refresh_token)
+    db.commit()
+    
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token_str,
+        "token_type": "bearer"
+    }
+
+@app.post("/api/auth/refresh", response_model=TokenResponse)
+def refresh_token(body: RefreshRequest, db: Session = Depends(get_db)):
+    payload = decode_token(body.refresh_token)
+    if payload.get("type") != "refresh":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type")
+    
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        
+    token_hash = hash_token(body.refresh_token)
+    db_token = db.query(RefreshToken).filter(
+        RefreshToken.user_id == user_id,
+        RefreshToken.token_hash == token_hash
+    ).first()
+    
+    if not db_token or db_token.revoked:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has been revoked or is invalid")
+        
+    if db_token.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has expired")
+        
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+        
+    # Rotate refresh token: revoke old one and issue a new pair
+    db_token.revoked = True
+    
+    new_access_token = create_access_token(data={"sub": user.id, "role": user.role.value})
+    new_refresh_token_str = create_refresh_token(data={"sub": user.id})
+    
+    new_token_hash = hash_token(new_refresh_token_str)
+    new_expires_at = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    
+    new_db_refresh_token = RefreshToken(
+        user_id=user.id,
+        token_hash=new_token_hash,
+        expires_at=new_expires_at,
+        revoked=False
+    )
+    db.add(new_db_refresh_token)
+    db.commit()
+    
+    return {
+        "access_token": new_access_token,
+        "refresh_token": new_refresh_token_str,
+        "token_type": "bearer"
+    }
+
+@app.post("/api/auth/logout")
+def logout(body: LogoutRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    token_hash = hash_token(body.refresh_token)
+    db_token = db.query(RefreshToken).filter(
+        RefreshToken.user_id == current_user.id,
+        RefreshToken.token_hash == token_hash
+    ).first()
+    
+    if db_token:
+        db_token.revoked = True
+        db.commit()
+        
+    return {"message": "Logged out successfully"}
+
+@app.get("/api/services")
+def list_services(
+    limit: int = Query(10, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db)
+):
+    services = db.query(Service).offset(offset).limit(limit).all()
+    return services
+
+@app.get("/api/mechanics")
+def list_mechanics(
+    limit: int = Query(10, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db)
+):
+    mechanics = db.query(Mechanic).offset(offset).limit(limit).all()
+    return mechanics
+
+@app.post("/api/bookings", status_code=status.HTTP_201_CREATED)
+def create_booking(
+    booking_data: BookingCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.client))
+):
+    # Validate mechanic exists
+    mechanic = db.query(Mechanic).filter(Mechanic.id == booking_data.mechanic_id).first()
+    if not mechanic:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mechanic not found")
+        
+    # Validate service exists
+    service = db.query(Service).filter(Service.id == booking_data.service_id).first()
+    if not service:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service not found")
+        
+    start_at = booking_data.start_at
+    if start_at.tzinfo is None:
+        start_at = start_at.replace(tzinfo=timezone.utc)
+        
+    if start_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot book in the past")
+        
+    end_at = start_at + timedelta(minutes=service.duration_minutes)
+    
+    try:
+        # Use transaction and SELECT ... FOR UPDATE to avoid race conditions and double booking
+        db.begin_nested()
+        
+        # Lock mechanic rows or use table/row lock logic.
+        # SQLAlchemy query with with_for_update()
+        existing_mechanic = db.query(Mechanic).filter(Mechanic.id == booking_data.mechanic_id).with_for_update().first()
+        if not existing_mechanic:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mechanic not found")
+            
+        # Check overlapping bookings for the mechanic
+        overlap = db.query(Booking).filter(
+            Booking.mechanic_id == booking_data.mechanic_id,
+            Booking.status.in_([BookingStatus.created, BookingStatus.confirmed]),
+            or_(
+                and_(Booking.start_at <= start_at, Booking.end_at > start_at),
+                and_(Booking.start_at < end_at, Booking.end_at >= end_at),
+                and_(Booking.start_at >= start_at, Booking.end_at <= end_at)
+            )
+        ).with_for_update().first()
+        
+        if overlap:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Mechanic is already booked for this time interval"
+            )
+            
+        new_booking = Booking(
+            client_id=current_user.id,
+            mechanic_id=booking_data.mechanic_id,
+            service_id=booking_data.service_id,
+            start_at=start_at,
+            end_at=end_at,
+            status=BookingStatus.created
+        )
+        db.add(new_booking)
+        db.commit()
+        db.refresh(new_booking)
+        
+        return {
+            "message": "Booking created successfully",
+            "booking_id": new_booking.id,
+            "start_at": new_booking.start_at,
+            "end_at": new_booking.end_at,
+            "status": new_booking.status
+        }
+    except HTTPException as he:
+        db.rollback()
+        raise he
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+@app.get("/api/bookings/my")
+def get_my_bookings(
+    limit: int = Query(10, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    query = db.query(Booking)
+    if current_user.role == UserRole.client:
+        query = query.filter(Booking.client_id == current_user.id)
+    elif current_user.role == UserRole.mechanic:
+        mechanic = db.query(Mechanic).filter(Mechanic.user_id == current_user.id).first()
+        if mechanic:
+            query = query.filter(Booking.mechanic_id == mechanic.id)
+        else:
+            return []
+            
+    bookings = query.offset(offset).limit(limit).all()
+    return bookings
+
+@app.post("/api/bookings/{booking_id}/cancel")
+def cancel_booking(
+    booking_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    booking = db.query(Booking).filter(Booking.id == booking_id).first()
+    if not booking:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found")
+        
+    # Check permissions: client who made it or admin or mechanic assigned
+    if current_user.role == UserRole.client and booking.client_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to cancel this booking")
+    
+    if booking.status == BookingStatus.cancelled:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Booking is already cancelled")
+        
+    booking.status = BookingStatus.cancelled
+    db.commit()
+    
+    return {"message": "Booking cancelled successfully", "booking_id": booking.id}
+```
+
+> Tokens: 6.0k sent, 2.5k received. Cost: $0.0080 message, $0.01 session.  
+> Applied edit to backend/main.py  
+> Commit 2fc44b1 feat: add services, mechanics, and booking management endpoints  
+> You can use /undo to undo and discard each aider commit.  
