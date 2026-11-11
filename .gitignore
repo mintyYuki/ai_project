@@ -4,3 +4,4 @@
 **/node_modules/
 **/.pnpm-store/
 **/.pnpm/
+**/__pycache__/
