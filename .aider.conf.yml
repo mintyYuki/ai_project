@@ -6,5 +6,5 @@ dark-mode: true
 gitignore: false
 chat-history-file: docs/prompts/aider.chat.history.md
 input-history-file: docs/prompts/aider.input.history
-lint-cmd: "venv/bin/ruff check ."
+lint-cmd: "backend/venv/bin/ruff check ."
 auto-lint: true
