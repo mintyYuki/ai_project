@@ -1,14 +1,13 @@
-import os
 import hashlib
-from datetime import datetime, timedelta, timezone
-from typing import Optional
-from jose import JWTError, jwt
-from passlib.context import CryptContext
+import os
+from datetime import UTC, datetime, timedelta
+from database import get_db
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
+from jose import JWTError, jwt
+from models import User, UserRole
+from passlib.context import CryptContext
 from sqlalchemy.orm import Session
-from database import get_db
-from models import User, RefreshToken, UserRole
 
 SECRET_KEY = os.getenv("SECRET_KEY", "super-secret-key-change-me")
 ALGORITHM = "HS256"
@@ -27,15 +26,15 @@ def get_password_hash(password: str) -> str:
 def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+def create_access_token(data: dict, expires_delta: timedelta | None = None):
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    expire = datetime.now(UTC) + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     to_encode.update({"exp": expire, "type": "access"})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None):
+def create_refresh_token(data: dict, expires_delta: timedelta | None = None):
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
+    expire = datetime.now(UTC) + (expires_delta or timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
     to_encode.update({"exp": expire, "type": "refresh"})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
