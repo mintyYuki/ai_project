@@ -1,8 +1,11 @@
+import csv
+import io
 from datetime import datetime, timedelta, timezone, date
 from typing import Optional
 from fastapi import FastAPI, Depends, HTTPException, status, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, or_, func
 from pydantic import BaseModel, EmailStr
 
 from database import get_db
@@ -324,6 +327,107 @@ def get_mechanic_bookings_by_date(
     ).all()
     
     return bookings
+
+def _parse_and_validate_report_dates(date_from: Optional[str], date_to: Optional[str]):
+    start_dt = None
+    end_dt = None
+    if date_from and not date_to:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Both date_from and date_to must be provided together, or neither")
+    if date_to and not date_from:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Both date_from and date_to must be provided together, or neither")
+
+    if date_from and date_to:
+        try:
+            parsed_from = datetime.strptime(date_from, "%d-%m-%Y").date()
+        except ValueError:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid date_from format, use DD-MM-YYYY")
+            
+        try:
+            parsed_to = datetime.strptime(date_to, "%d-%m-%Y").date()
+        except ValueError:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid date_to format, use DD-MM-YYYY")
+            
+        if parsed_from > parsed_to:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="date_from cannot be later than date_to")
+            
+        start_dt = datetime.combine(parsed_from, datetime.min.time()).replace(tzinfo=timezone.utc)
+        end_dt = datetime.combine(parsed_to, datetime.max.time()).replace(tzinfo=timezone.utc)
+        
+    return start_dt, end_dt
+
+def _fetch_admin_report_data(db: Session, start_dt: Optional[datetime], end_dt: Optional[datetime]):
+    booking_on_clauses = [Booking.service_id == Service.id]
+    if start_dt and end_dt:
+        booking_on_clauses.append(Booking.start_at >= start_dt)
+        booking_on_clauses.append(Booking.start_at <= end_dt)
+
+    query = db.query(
+        Service.id.label("service_id"),
+        Service.name.label("service_name"),
+        Service.price.label("service_price"),
+        func.count(Booking.id).label("total_bookings"),
+        func.coalesce(func.sum(Service.price), 0).label("total_revenue")
+    ).select_from(Service).outerjoin(
+        Booking,
+        and_(*booking_on_clauses)
+    ).group_by(Service.id, Service.name, Service.price)
+
+    results = query.all()
+    report_data = []
+    for row in results:
+        report_data.append({
+            "service_id": row.service_id,
+            "service_name": row.service_name,
+            "service_price": float(row.service_price),
+            "total_bookings": row.total_bookings,
+            "total_revenue": float(row.total_revenue)
+        })
+    return report_data
+
+@app.get("/api/admin/reports")
+def get_admin_reports(
+    date_from: Optional[str] = Query(None, description="Start date in DD-MM-YYYY format"),
+    date_to: Optional[str] = Query(None, description="End date in DD-MM-YYYY format"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.administrator))
+):
+    start_dt, end_dt = _parse_and_validate_report_dates(date_from, date_to)
+    report_data = _fetch_admin_report_data(db, start_dt, end_dt)
+    return {
+        "date_from": date_from,
+        "date_to": date_to,
+        "report": report_data
+    }
+
+@app.get("/api/admin/reports/export-csv")
+def export_admin_reports_csv(
+    date_from: Optional[str] = Query(None, description="Start date in DD-MM-YYYY format"),
+    date_to: Optional[str] = Query(None, description="End date in DD-MM-YYYY format"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.administrator))
+):
+    start_dt, end_dt = _parse_and_validate_report_dates(date_from, date_to)
+    report_data = _fetch_admin_report_data(db, start_dt, end_dt)
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Service ID", "Service Name", "Service Price", "Total Bookings", "Total Revenue"])
+    for row in report_data:
+        writer.writerow([
+            row["service_id"],
+            row["service_name"],
+            row["service_price"],
+            row["total_bookings"],
+            row["total_revenue"]
+        ])
+
+    output.seek(0)
+    filename = f"report_{date_from or 'all'}_to_{date_to or 'all'}.csv"
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
 
 @app.post("/api/bookings/{booking_id}/status")
 def change_booking_status(
