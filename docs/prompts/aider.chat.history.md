@@ -48498,3 +48498,6 @@ backend/venv/bin/pytest backend/tests
 > Add command output to the chat? (Y)es/(N)o/(D)on't ask again [Yes]: y  
 > Added 13 lines of output to the chat.  
 > You can use /undo to undo and discard each aider commit.  
+
+#### /clear  
+> All chat history cleared.  
