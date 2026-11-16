@@ -211,7 +211,7 @@ def list_mechanics(
     mechanics = db.query(Mechanic).offset(offset).limit(limit).all()
     return mechanics
 
-@app.post("/api/bookings", status_code=status.HTTP_201_CREATED)
+@app.post("/api/bookings", status_code=status.HTTP_201_CREATED, dependencies=[Depends(acquire_booking_lock)])
 def create_booking(
     booking_data: BookingCreate,
     db: Session = Depends(get_db),
