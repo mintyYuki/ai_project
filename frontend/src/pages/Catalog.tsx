@@ -52,11 +52,28 @@ export function Catalog() {
         <div className="card-list">
           <h3>Доступные услуги</h3>
           {services.map((s) => (
-            <div key={s.id} className="item-card">
+            <div
+              key={s.id}
+              className="item-card clickable"
+              style={{ cursor: user?.role === 'client' ? 'pointer' : 'default' }}
+              onClick={() => {
+                console.log('[Catalog] Service card clicked:', s);
+                if (user?.role === 'client') {
+                  window.location.href = `/bookings/new?service_id=${s.id}`;
+                } else {
+                  console.log('[Catalog] Non-client role or unauthenticated user clicked service card. Action ignored.');
+                }
+              }}
+            >
               <h4>{s.name}</h4>
               {s.description && <p>{s.description}</p>}
               <p>Длительность: {s.duration_minutes} мин.</p>
               <p className="price">Цена: {s.price} ₽</p>
+              {user?.role === 'client' && (
+                <span style={{ fontSize: '0.8rem', color: '#00b37e', marginTop: '0.5rem', display: 'inline-block' }}>
+                  Нажмите, чтобы записаться →
+                </span>
+              )}
             </div>
           ))}
         </div>
