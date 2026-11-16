@@ -1,18 +1,17 @@
-import pytest
+import os
+import sys
+
+from auth import get_password_hash
+from database import Base, get_db
 from fastapi.testclient import TestClient
+from main import app
+from models import Mechanic, Service, User, UserRole
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-import sys
-import os
-
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
-from database import Base, get_db
-from main import app
-from models import User, UserRole, Service, Mechanic
-from auth import get_password_hash
 
 SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
 

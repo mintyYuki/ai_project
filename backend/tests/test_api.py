@@ -1,10 +1,11 @@
-import pytest
 import asyncio
-from datetime import datetime, timedelta, timezone
-from httpx import AsyncClient, ASGITransport
-from main import app
-from models import User, UserRole, Mechanic, Service, Booking, BookingStatus
+from datetime import UTC, datetime, timedelta
+
 from auth import get_password_hash
+from httpx import ASGITransport, AsyncClient
+from main import app
+from models import User, UserRole, Mechanic, Service
+import pytest
 
 def get_auth_token(client, email, password):
     response = client.post("/api/auth/login", json={"email": email, "password": password})
@@ -30,7 +31,7 @@ def test_role_access_control(client):
 
     service_id = client.get("/api/services").json()[0]["id"]
     mechanic_id = client.get("/api/mechanics").json()[0]["id"]
-    future_time = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+    future_time = (datetime.now(UTC) + timedelta(days=1)).isoformat()
 
     booking_payload = {
         "mechanic_id": mechanic_id,
@@ -75,7 +76,7 @@ async def test_booking_concurrency():
         token = get_auth_token(tc, "concurrent_client@example.com", "password123")
 
     headers = {"Authorization": f"Bearer {token}"}
-    future_time = (datetime.now(timezone.utc) + timedelta(days=2)).isoformat()
+    future_time = (datetime.now(UTC) + timedelta(days=2)).isoformat()
     booking_payload = {
         "mechanic_id": mech_id,
         "service_id": serv_id,
