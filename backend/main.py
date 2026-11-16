@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import FastAPI, Depends, HTTPException, status, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_, func
+from sqlalchemy import and_, or_, func, text
 from pydantic import BaseModel, EmailStr
 
 from database import get_db
@@ -229,6 +229,12 @@ def create_booking(
     end_at = start_at + timedelta(minutes=service.duration_minutes)
     
     try:
+        # For SQLite / concurrent safety, ensure immediate transaction/locking
+        try:
+            db.execute(text("BEGIN IMMEDIATE"))
+        except Exception:
+            pass
+
         # Lock the mechanic row to serialize overlapping concurrent booking creation attempts
         existing_mechanic = db.query(Mechanic).filter(Mechanic.id == booking_data.mechanic_id).with_for_update().first()
         if not existing_mechanic:
