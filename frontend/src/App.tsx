@@ -3,7 +3,8 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { Login } from './pages/Login';
 import { Register } from './pages/Register';
 import { Catalog } from './pages/Catalog';
-import { Bookings } from './pages/Bookings';
+import { CreateBooking } from './pages/CreateBooking';
+import { ClientBookings } from './pages/ClientBookings';
 import { MechanicPanel } from './pages/MechanicPanel';
 import { AdminReports } from './pages/AdminReports';
 import './App.css';
@@ -51,7 +52,8 @@ function App() {
           </Route>
 
           <Route element={<ProtectedRoute allowedRoles={['client']} />}>
-            <Route path="/bookings" element={<Bookings />} />
+            <Route path="/bookings" element={<ClientBookings />} />
+            <Route path="/bookings/new" element={<CreateBooking />} />
           </Route>
 
           <Route element={<ProtectedRoute allowedRoles={['mechanic']} />}>
