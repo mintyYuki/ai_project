@@ -608,3 +608,207 @@
 
 # 2026-11-16 14:28:25.892801
 +/оно меня рейджбайтит
+
+# 2026-11-16 14:55:11.376713
++/run backend/venv/bin/pytest backend/tests
+
+# 2026-11-16 14:55:18.532796
++y
+
+# 2026-11-16 14:55:22.505613
++What's wrong? Fix
+
+# 2026-11-16 14:55:26.496620
++y
+
+# 2026-11-16 14:56:49.957400
++any other issues left needing fixes?
+
+# 2026-11-16 14:56:58.664954
++y
+
+# 2026-11-16 14:57:39.842184
++/run backend/venv/bin/pytest backend/tests
+
+# 2026-11-16 14:57:39.842207
++/run backend/venv/bin/pytest backend/tests
+
+# 2026-11-16 14:57:48.604040
++y
+
+# 2026-11-16 14:57:58.012069
++/run backend/venv/bin/pyright backend/
+
+# 2026-11-16 14:57:58.012103
++/run backend/venv/bin/pyright backend/
+
+# 2026-11-16 14:58:02.481672
++y
+
+# 2026-11-16 14:59:50.084354
++tests still fail.
+
+# 2026-11-16 15:00:05.882465
++y
+
+# 2026-11-16 15:00:05.884108
++/run backend/venv/bin/pytest backend/tests
+
+# 2026-11-16 15:00:05.884122
++/run backend/venv/bin/pytest backend/tests
+
+# 2026-11-16 15:00:13.093987
++y
+
+# 2026-11-16 15:01:47.593205
++still issues. also fix all deprecated warnings. if you need me to look up anything on the internet, let me know - you can write me a prompt for a web AI if you want, i'll pasteit and feed to an AI with internet access, and forward its output back to you.
+
+# 2026-11-16 15:01:59.079790
++y
+
+# 2026-11-16 15:02:12.634733
++/run backend/venv/bin/pytest backend/tests
+
+# 2026-11-16 15:02:12.634760
++/run backend/venv/bin/pytest backend/tests
+
+# 2026-11-16 15:05:32.351632
++y
+
+# 2026-11-16 15:05:42.858673
++Hey, this message was written by another AI assistant (Gemini) brought in by the user to help you get unstuck from the `test_booking_concurrency` loop.
++
++### What Happened & Why You Are Stuck
++You are currently putting `threading.Lock()` inside the `try:` block of `create_booking`, right above the `Mechanic` query. That fails because the test is crashing with `sqlite3.InterfaceError: bad parameter or other API misuse` BEFORE execution ever reaches your lock:
++
++1. **Shared SQLite Session Across Threads:** In `test_booking_concurrency`, the test suite overrides `get_db` to yield a single shared SQLAlchemy `Session` across concurrent `TestClient` worker threads (a common pytest transaction-rollback setup). SQLite's C-API is not thread-safe when two threads touch the same connection/cursor simultaneously.
++2. **Queries Happen Before Your Lock:** FastAPI runs `get_current_user` (which queries `User`) and `create_booking` queries `Service` (`SELECT ... FROM services WHERE services.id = ?`) *before* reaching your `with booking_lock:` block. Two threads hit `db.query()` at the exact same time, colliding on the SQLite cursor and throwing `InterfaceError`.
++3. **`.with_for_update()` Does Nothing in SQLite:** SQLite does not support row-level `SELECT ... FOR UPDATE` locking.
++
++### How to Fix It in `backend/main.py`
++Move the `threading.Lock()` into a **FastAPI route dependency** (`dependencies=[Depends(acquire_db_lock)]`) on the booking creation endpoint. Because route-level `dependencies` execute *before* parameter dependencies (`get_current_user`) and *before* the endpoint body, FastAPI will hold the lock across the entire request lifecycle—preventing any two threads from touching the shared SQLite `Session` at the same time.
++
++Apply these changes to `backend/main.py`:
++
++1. **Define a route-level lock dependency** (at module level):
++```python
++import threading
++from fastapi import Depends
++
++sqlite_booking_lock = threading.Lock()
++
++def acquire_booking_lock():
++    with sqlite_booking_lock:
++        yield
++```
++
++2. **Attach it to the booking creation route decorator** (keep your existing route path and response model):
++```python
++@app.post("/bookings", dependencies=[Depends(acquire_booking_lock)])  # adjust path/args to match existing decorator
++def create_booking(
++    booking_data: BookingCreate,
++    db: Session = Depends(get_db),
++    current_user: User = Depends(get_current_user)
++):
++```
++*(Note: If `create_booking` is `async def`, make sure `acquire_booking_lock` is a regular `def` generator so FastAPI runs it in the threadpool properly without blocking the event loop.)*
++
++3. **Clean up the inside of `create_booking`:**
++- Remove the inner `with booking_lock:` block (the route dependency now covers the entire request).
++- Remove `.with_for_update()` from the `Mechanic` query.
++- Add `db.flush()` right after `db.add(new_booking)` so `new_booking.id` is populated before `ActionLog` logs it.
++
++Apply these changes to `backend/main.py` using your SEARCH/REPLACE format now, then re-run the test suite.
++
+
+# 2026-11-16 15:06:07.259919
++y
+
+# 2026-11-16 15:06:07.262177
++/run backend/venv/bin/pytest backend/tests
+
+# 2026-11-16 15:06:07.262196
++/run backend/venv/bin/pytest backend/tests
+
+# 2026-11-16 15:06:45.101479
++y
+
+# 2026-11-16 15:08:11.251699
++Hey, this is Gemini (the external AI assistant brought in by the user) following up to help clean up the remaining 22 warnings in the test suite so `pytest` passes with 0 warnings.
++
++### Analysis of the Current Warnings
++All 22 warnings in the latest test output come from third-party dependencies rather than a bug in the business logic:
++1. **`PytestDeprecationWarning` (`pytest_asyncio`):** `The configuration option "asyncio_default_fixture_loop_scope" is unset.`
++2. **`StarletteDeprecationWarning` (`fastapi/testclient.py`):** `Using httpx with starlette.testclient is deprecated; install httpx2 instead.`
++3. **`DeprecationWarning` (`jose/jwt.py:311` - 21 warnings):** `python-jose` internally calls `datetime.utcnow()` when encoding/decoding JWTs (since `python-jose` is unmaintained, this comes from inside the library itself, though we should also verify `backend/auth.py` uses `datetime.now(timezone.utc)`).
++
++Remember rule #3 in `docs/AGENTS.md`: do not alter existing test files (`backend/tests/*`), and note which files in the repo are read-only vs. editable.
++
++### Action Plan to Eliminate All Warnings
++
++1. **Verify `backend/auth.py` and `backend/main.py`:**
++   - Check `backend/auth.py` (and `backend/main.py`) for any direct calls to `datetime.utcnow()`. If any exist in our own code, replace them with `datetime.now(timezone.utc)`.
++
++2. **Configure `pytest` settings (`pytest.ini` or `pyproject.toml`):**
++   - Check if `pytest.ini` or `pyproject.toml` exists in the repo root (or create `pytest.ini` if no config file exists and it's allowed).
++   - Set `asyncio_default_fixture_loop_scope = function` to resolve the `pytest-asyncio` configuration warning cleanly.
++   - Add `filterwarnings` to ignore the third-party library deprecation warnings we cannot directly patch in `site-packages` (specifically `jose.jwt` `datetime.utcnow()` and `starlette.testclient` `httpx2` warnings):
++
++```ini
++[pytest]
++asyncio_default_fixture_loop_scope = function
++filterwarnings =
++    ignore:datetime\.datetime\.utcnow\(\) is deprecated:DeprecationWarning:jose\.jwt
++    ignore:Using `httpx` with `starlette\.testclient` is deprecated:DeprecationWarning
++```
++*(Note: If `StarletteDeprecationWarning` inherits from `DeprecationWarning` or `UserWarning`, matching `ignore:Using `httpx` with `starlette\.testclient` is deprecated` without restricting the warning class—or using `Warning`—will catch it reliably.)*
++
++3. **Fallback if `pytest.ini` / `pyproject.toml` cannot be created/edited:**
++   - If project rules restrict creating root config files, you can suppress those specific third-party warnings at import time in `backend/auth.py` (for `jose`) using `warnings.filterwarnings("ignore", message=r".*datetime\.datetime\.utcnow\(\) is deprecated.*", module=r"jose\.jwt")`, and let the user know if `pytest -W ignore::DeprecationWarning` or a `pytest.ini` file is preferred for the test-runner-level warnings.
++
++Inspect `backend/auth.py` and any existing pytest configuration first, apply the cleanest fix, and re-run `backend/venv/bin/pytest backend/tests` to verify 0 warnings.
++
+
+# 2026-11-16 15:08:20.945245
++y
+
+# 2026-11-16 15:08:23.871950
++/run backend/venv/bin/pytest backend/tests
+
+# 2026-11-16 15:08:23.871970
++/run backend/venv/bin/pytest backend/tests
+
+# 2026-11-16 15:08:31.681785
++y
+
+# 2026-11-16 15:09:03.493630
++Hey, this is Gemini (the external AI assistant) following up on that last remaining warning in `pytest.ini`.
++
++### Why the `StarletteDeprecationWarning` Still Showed Up
++In `pytest.ini`, the filter likely used `DeprecationWarning` as the warning class (or missed matching `StarletteDeprecationWarning`). In Starlette, `StarletteDeprecationWarning` is a custom warning subclass—and in `pytest` `filterwarnings`, omitting the warning class (or setting it to `Warning`) matches any warning subclass cleanly.
++
++### Fix in `pytest.ini`
++Update the `StarletteDeprecationWarning` line in `pytest.ini` under `filterwarnings` so it uses `Warning` (or leaves the category blank) and matches the message pattern without strict backtick issues:
++
++```ini
++[pytest]
++asyncio_default_fixture_loop_scope = function
++filterwarnings =
++    ignore:datetime\.datetime\.utcnow\(\) is deprecated:DeprecationWarning:jose\.jwt
++    ignore:Using .* with .*starlette\.testclient.* is deprecated:Warning
++```
++
++Update `pytest.ini` and re-run `backend/venv/bin/pytest backend/tests` to confirm `4 passed` with **0 warnings**.
++
+
+# 2026-11-16 15:09:10.151120
++y
+
+# 2026-11-16 15:09:10.152866
++/run backend/venv/bin/pytest backend/tests
+
+# 2026-11-16 15:09:10.152880
++/run backend/venv/bin/pytest backend/tests
+
+# 2026-11-16 15:09:18.148293
++y
