@@ -10,4 +10,3 @@ lint-cmd: "backend/venv/bin/ruff check ."
 auto-lint: true
 read:
   - AGENTS.md
-  - .cursorrules
