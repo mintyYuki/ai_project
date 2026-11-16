@@ -4,6 +4,7 @@ import threading
 from datetime import datetime, timedelta, timezone, date
 from typing import Optional
 from fastapi import FastAPI, Depends, HTTPException, status, Query
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, func, text
@@ -25,6 +26,14 @@ from auth import (
 from models import UserRole
 
 app = FastAPI(title="Car Service API", version="1.0.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class UserRegister(BaseModel):
     email: EmailStr

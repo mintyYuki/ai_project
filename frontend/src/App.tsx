@@ -5,8 +5,8 @@ import { Register } from './pages/Register';
 import { Catalog } from './pages/Catalog';
 import { CreateBooking } from './pages/CreateBooking';
 import { ClientBookings } from './pages/ClientBookings';
-import { MechanicPanel } from './pages/MechanicPanel';
-import { AdminReports } from './pages/AdminReports';
+import { MechanicDashboard } from './pages/MechanicDashboard';
+import { AdminDashboard } from './pages/AdminDashboard';
 import './App.css';
 
 function App() {
@@ -57,11 +57,11 @@ function App() {
           </Route>
 
           <Route element={<ProtectedRoute allowedRoles={['mechanic']} />}>
-            <Route path="/mechanic" element={<MechanicPanel />} />
+            <Route path="/mechanic" element={<MechanicDashboard />} />
           </Route>
 
           <Route element={<ProtectedRoute allowedRoles={['administrator']} />}>
-            <Route path="/admin" element={<AdminReports />} />
+            <Route path="/admin" element={<AdminDashboard />} />
           </Route>
         </Routes>
       </main>
