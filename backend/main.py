@@ -88,7 +88,7 @@ def register(user_data: UserRegister, db: Session = Depends(get_db)):
 @app.post("/api/auth/login", response_model=TokenResponse)
 def login(credentials: UserLogin, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == credentials.email).first()
-    if not user or not verify_password(credentials.password, user.password):
+    if not user or not verify_password(credentials.password, str(user.password)):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
@@ -137,7 +137,7 @@ def refresh_token(body: RefreshRequest, db: Session = Depends(get_db)):
         RefreshToken.token_hash == token_hash
     ).first()
     
-    if not db_token or db_token.revoked:
+    if not db_token or bool(db_token.revoked):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has been revoked or is invalid")
         
     if db_token.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
@@ -148,7 +148,7 @@ def refresh_token(body: RefreshRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
         
     # Rotate refresh token: revoke old one and issue a new pair
-    db_token.revoked = True
+    db_token.revoked = True  # type: ignore
     
     new_access_token = create_access_token(data={"sub": user.id, "role": user.role.value})
     new_refresh_token_str = create_refresh_token(data={"sub": user.id})
@@ -180,7 +180,7 @@ def logout(body: LogoutRequest, db: Session = Depends(get_db), current_user: Use
     ).first()
     
     if db_token:
-        db_token.revoked = True
+        db_token.revoked = True  # type: ignore
         db.commit()
         
     return {"message": "Logged out successfully"}
@@ -226,7 +226,7 @@ def create_booking(
     if start_at < datetime.now(timezone.utc):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot book in the past")
         
-    end_at = start_at + timedelta(minutes=service.duration_minutes)
+    end_at = start_at + timedelta(minutes=float(service.duration_minutes))
     
     try:
         # For SQLite / concurrent safety, ensure immediate transaction/locking
@@ -457,7 +457,7 @@ def change_booking_status(
         if not mechanic or booking.mechanic_id != mechanic.id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Mechanic can only update their own bookings")
             
-    old_status = booking.status
+    old_status = BookingStatus(booking.status)
     new_status = body.status
     
     if new_status not in VALID_TRANSITIONS.get(old_status, []):
@@ -467,7 +467,7 @@ def change_booking_status(
         )
         
     try:
-        booking.status = new_status
+        booking.status = new_status  # type: ignore
         
         action_log = ActionLog(
             user_id=current_user.id,
@@ -504,7 +504,7 @@ def cancel_booking(
     if current_user.role == UserRole.client and booking.client_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to cancel this booking")
     
-    old_status = booking.status
+    old_status = BookingStatus(booking.status)
     if old_status == BookingStatus.cancelled:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Booking is already cancelled")
         
@@ -512,7 +512,7 @@ def cancel_booking(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Cannot cancel booking in status {old_status}")
         
     try:
-        booking.status = BookingStatus.cancelled
+        booking.status = BookingStatus.cancelled  # type: ignore
         
         action_log = ActionLog(
             user_id=current_user.id,
