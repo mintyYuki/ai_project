@@ -74,7 +74,7 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
 
 def require_role(required_role: UserRole):
     def role_dependency(current_user: User = Depends(get_current_user)) -> User:
-        if current_user.role != required_role and current_user.role != UserRole.administrator:
+        if UserRole(current_user.role) != required_role and UserRole(current_user.role) != UserRole.administrator:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Operation not permitted for this role"
