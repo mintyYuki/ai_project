@@ -21,6 +21,7 @@ from auth import (
     require_role,
     REFRESH_TOKEN_EXPIRE_DAYS
 )
+from models import UserRole
 
 app = FastAPI(title="Car Service API", version="1.0.0")
 
@@ -95,7 +96,7 @@ def login(credentials: UserLogin, db: Session = Depends(get_db)):
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    access_token = create_access_token(data={"sub": user.id, "role": user.role.value})
+    access_token = create_access_token(data={"sub": user.id, "role": UserRole(user.role).value})
     refresh_token_str = create_refresh_token(data={"sub": user.id})
     
     # Save refresh token hash in db
@@ -150,7 +151,7 @@ def refresh_token(body: RefreshRequest, db: Session = Depends(get_db)):
     # Rotate refresh token: revoke old one and issue a new pair
     db_token.revoked = True  # type: ignore
     
-    new_access_token = create_access_token(data={"sub": user.id, "role": user.role.value})
+    new_access_token = create_access_token(data={"sub": user.id, "role": UserRole(user.role).value})
     new_refresh_token_str = create_refresh_token(data={"sub": user.id})
     
     new_token_hash = hash_token(new_refresh_token_str)
@@ -445,7 +446,7 @@ def change_booking_status(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    if current_user.role not in [UserRole.mechanic, UserRole.administrator]:
+    if UserRole(current_user.role) not in [UserRole.mechanic, UserRole.administrator]:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only mechanics or administrators can change booking status")
         
     booking = db.query(Booking).filter(Booking.id == booking_id).first()
