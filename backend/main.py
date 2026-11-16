@@ -1,5 +1,6 @@
 import csv
 import io
+import threading
 from datetime import datetime, timedelta, timezone, date
 from typing import Optional
 from fastapi import FastAPI, Depends, HTTPException, status, Query
@@ -52,6 +53,12 @@ class BookingCreate(BaseModel):
 
 class StatusChangeRequest(BaseModel):
     status: BookingStatus
+
+sqlite_booking_lock = threading.Lock()
+
+def acquire_booking_lock():
+    with sqlite_booking_lock:
+        yield
 
 # Valid state transitions mapping
 VALID_TRANSITIONS = {
