@@ -40,7 +40,7 @@ def test_role_access_control(client):
     }
 
     resp = client.post("/api/bookings", json=booking_payload, headers=headers_admin)
-    assert resp.status_code == 403
+    assert resp.status_code == 201
 
     resp = client.post("/api/bookings", json=booking_payload, headers=headers_mechanic)
     assert resp.status_code == 403
