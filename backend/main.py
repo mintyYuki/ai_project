@@ -455,7 +455,7 @@ def change_booking_status(
         
     if UserRole(current_user.role) == UserRole.mechanic:
         mechanic = db.query(Mechanic).filter(Mechanic.user_id == current_user.id).first()
-        if not mechanic or booking.mechanic_id != mechanic.id:
+        if not mechanic or int(str(booking.mechanic_id)) != mechanic.id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Mechanic can only update their own bookings")
             
     old_status = BookingStatus(booking.status)
@@ -502,7 +502,7 @@ def cancel_booking(
     if not booking:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found")
         
-    if UserRole(current_user.role) == UserRole.client and booking.client_id != current_user.id:
+    if UserRole(current_user.role) == UserRole.client and int(str(booking.client_id)) != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to cancel this booking")
     
     old_status = BookingStatus(booking.status)
