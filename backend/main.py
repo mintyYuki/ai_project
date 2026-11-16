@@ -230,12 +230,6 @@ def create_booking(
     end_at = start_at + timedelta(minutes=float(str(service.duration_minutes)))
     
     try:
-        # For SQLite / concurrent safety, ensure immediate transaction/locking
-        try:
-            db.execute(text("BEGIN IMMEDIATE"))
-        except Exception:
-            pass
-
         # Lock the mechanic row to serialize overlapping concurrent booking creation attempts
         existing_mechanic = db.query(Mechanic).filter(Mechanic.id == booking_data.mechanic_id).with_for_update().first()
         if not existing_mechanic:
