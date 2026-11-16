@@ -47,7 +47,7 @@ def test_role_access_control(client):
 
 @pytest.mark.asyncio
 async def test_booking_concurrency():
-    from conftest import TestingSessionLocal
+    from tests.conftest import TestingSessionLocal
     db = TestingSessionLocal()
     
     client_user = User(email="concurrent_client@example.com", password=get_password_hash("password123"), role=UserRole.client)
