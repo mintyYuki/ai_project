@@ -4,8 +4,7 @@ auto-commits: true
 gitignore: false
 chat-history-file: docs/prompts/aider.chat.history.md
 input-history-file: docs/prompts/aider.input.history
-lint-cmd: "backend/venv/bin/pyright backend/"
-auto-lint: true
+auto-lint: false
 add-gitignore-files: false
 show-model-warnings: false
 edit-format: diff-fenced

@@ -1,8 +1,11 @@
 # Agent Guidelines & Project Rules
 
-1. **Directory Structure:**
+1. **Directory Structure & Tech Stack:**
    - All backend-related code must reside strictly inside `backend/`.
    - All frontend-related code must reside strictly inside `frontend/`.
+   - Frontend stack uses `pnpm`, `react`, `typescript`, `vite`, `axios`, `lucide-react`.
+   - Frontend linting is done via `pnpm lint` inside `frontend/` (or `pnpm --dir frontend lint` from root), using `oxlint`.
+   - Backend linting uses `backend/venv/bin/pyright backend/`.
 
 2. **Explicit Error Reporting:**
    - If any requested feature, instruction, or task cannot be fulfilled or/and executed for any reason, you must explicitly state what cannot be done and why, rather than silently omitting or ignoring it.
