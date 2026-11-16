@@ -1,8 +1,4 @@
 import { useEffect, useState } from 'react';
-import { apiClient } from '../api/client';
-import type { Service, Mechanic } from '../types';
-
-import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { apiClient } from '../api/client';
 import type { Service, Mechanic } from '../types';
