@@ -226,7 +226,7 @@ def create_booking(
     if start_at < datetime.now(timezone.utc):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot book in the past")
         
-    end_at = start_at + timedelta(minutes=float(service.duration_minutes))
+    end_at = start_at + timedelta(minutes=float(str(service.duration_minutes)))
     
     try:
         # For SQLite / concurrent safety, ensure immediate transaction/locking
@@ -299,9 +299,9 @@ def get_my_bookings(
     current_user: User = Depends(get_current_user)
 ):
     query = db.query(Booking)
-    if current_user.role == UserRole.client:
+    if UserRole(current_user.role) == UserRole.client:
         query = query.filter(Booking.client_id == current_user.id)
-    elif current_user.role == UserRole.mechanic:
+    elif UserRole(current_user.role) == UserRole.mechanic:
         mechanic = db.query(Mechanic).filter(Mechanic.user_id == current_user.id).first()
         if mechanic:
             query = query.filter(Booking.mechanic_id == mechanic.id)
@@ -452,7 +452,7 @@ def change_booking_status(
     if not booking:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found")
         
-    if current_user.role == UserRole.mechanic:
+    if UserRole(current_user.role) == UserRole.mechanic:
         mechanic = db.query(Mechanic).filter(Mechanic.user_id == current_user.id).first()
         if not mechanic or booking.mechanic_id != mechanic.id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Mechanic can only update their own bookings")
@@ -501,7 +501,7 @@ def cancel_booking(
     if not booking:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found")
         
-    if current_user.role == UserRole.client and booking.client_id != current_user.id:
+    if UserRole(current_user.role) == UserRole.client and booking.client_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to cancel this booking")
     
     old_status = BookingStatus(booking.status)
