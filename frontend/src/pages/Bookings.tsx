@@ -6,17 +6,24 @@ export function Bookings() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [error, setError] = useState('');
 
-  const fetchBookings = async () => {
-    try {
-      const res = await apiClient.get('/bookings/my');
-      setBookings(res.data);
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Не удалось загрузить бронирования');
-    }
-  };
-
   useEffect(() => {
-    fetchBookings();
+    let isMounted = true;
+    const loadBookings = async () => {
+      try {
+        const res = await apiClient.get('/bookings/my');
+        if (isMounted) {
+          setBookings(res.data);
+        }
+      } catch (err: any) {
+        if (isMounted) {
+          setError(err.response?.data?.detail || 'Не удалось загрузить бронирования');
+        }
+      }
+    };
+    loadBookings();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const handleCancel = async (id: number) => {
