@@ -25,7 +25,14 @@ function App() {
   return (
     <div className="app-dark-layout">
       <nav className="navbar">
-        <div className="nav-brand">Автосервис</div>
+        <div className="nav-brand" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <span>Автосервис</span>
+          {user && (
+            <span style={{ fontSize: '0.8rem', backgroundColor: '#29292e', padding: '0.2rem 0.5rem', borderRadius: '4px', color: '#00b37e' }}>
+              Роль: {user.role}
+            </span>
+          )}
+        </div>
         <div className="nav-links">
           <Link to="/">Каталог (Услуги)</Link>
           {token && user?.role === 'client' && <Link to="/bookings">Мои бронирования</Link>}

@@ -12,13 +12,26 @@ export const apiClient = axios.create({
 
 apiClient.interceptors.request.use(
   (config) => {
+    const startTime = performance.now();
+    (config as any).metadata = { startTime };
+    
     const token = localStorage.getItem('access_token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+
+    console.log(`[API Request] ${config.method?.toUpperCase()} ${config.url}`, {
+      params: config.params,
+      data: config.data,
+      headers: config.headers,
+    });
+
     return config;
   },
-  (error) => Promise.reject(error)
+  (error) => {
+    console.error('[API Request Error]', error);
+    return Promise.reject(error);
+  }
 );
 
 let isRefreshing = false;
@@ -39,8 +52,23 @@ const processQueue = (error: any, token: string | null = null) => {
 };
 
 apiClient.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    const startTime = (response.config as any).metadata?.startTime;
+    const duration = startTime ? (performance.now() - startTime).toFixed(2) : 'unknown';
+
+    console.log(`[API Response] ${response.config.method?.toUpperCase()} ${response.config.url} - Status: ${response.status} (${duration}ms)`, {
+      data: response.data,
+    });
+    return response;
+  },
   async (error) => {
+    const startTime = (error.config as any)?.metadata?.startTime;
+    const duration = startTime ? (performance.now() - startTime).toFixed(2) : 'unknown';
+
+    console.error(`[API Response Error] ${error.config?.method?.toUpperCase()} ${error.config?.url} - Status: ${error.response?.status} (${duration}ms)`, {
+      data: error.response?.data,
+      message: error.message,
+    });
     const originalRequest = error.config;
 
     if (error.response?.status === 401 && !originalRequest._retry) {

@@ -3,14 +3,25 @@ import io
 import threading
 from datetime import datetime, timedelta, timezone, date
 from typing import Optional
-from fastapi import FastAPI, Depends, HTTPException, status, Query
+import time
+import logging
+from fastapi import FastAPI, Depends, HTTPException, status, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from fastapi.exceptions import RequestValidationError
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, func, text
 from pydantic import BaseModel, EmailStr
 
 from database import get_db
+
+# Configure comprehensive logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[logging.StreamHandler()]
+)
+logger = logging.getLogger("carservice_backend")
 from models import User, RefreshToken, UserRole, Service, Mechanic, Booking, BookingStatus, ActionLog
 from auth import (
     get_password_hash,
@@ -76,6 +87,42 @@ VALID_TRANSITIONS = {
     BookingStatus.completed: [],
     BookingStatus.cancelled: []
 }
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start_time = time.time()
+    body_bytes = await request.body()
+    body_str = body_bytes.decode("utf-8", errors="ignore") if body_bytes else ""
+    
+    logger.info(f"Incoming Request: method={request.method} path={request.url.path} client={request.client.host if request.client else 'unknown'} body={body_str}")
+    
+    try:
+        response = await call_next(request)
+        process_time = (time.time() - start_time) * 1000
+        logger.info(f"Outgoing Response: path={request.url.path} status_code={response.status_code} duration_ms={process_time:.2f}ms")
+        return response
+    except Exception as exc:
+        process_time = (time.time() - start_time) * 1000
+        logger.error(f"Request Exception: path={request.url.path} error={str(exc)} duration_ms={process_time:.2f}ms")
+        raise exc
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    logger.warning(f"HTTPException encountered: status_code={exc.status_code} detail={exc.detail} path={request.url.path}")
+    return StreamingResponse(
+        iter([f'{{"detail": "{exc.detail}"}}']),
+        status_code=exc.status_code,
+        media_type="application/json"
+    )
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    logger.error(f"Validation Error on path={request.url.path}: errors={exc.errors()} body={exc.body}")
+    return StreamingResponse(
+        iter([f'{{"detail": {exc.errors()}}}']),
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        media_type="application/json"
+    )
 
 @app.get("/")
 def read_root():
