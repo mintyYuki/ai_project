@@ -229,6 +229,7 @@ def create_booking(
     end_at = start_at + timedelta(minutes=service.duration_minutes)
     
     try:
+        # Lock the mechanic row to serialize overlapping concurrent booking creation attempts
         existing_mechanic = db.query(Mechanic).filter(Mechanic.id == booking_data.mechanic_id).with_for_update().first()
         if not existing_mechanic:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mechanic not found")
@@ -241,7 +242,7 @@ def create_booking(
                 and_(Booking.start_at < end_at, Booking.end_at >= end_at),
                 and_(Booking.start_at >= start_at, Booking.end_at <= end_at)
             )
-        ).with_for_update().first()
+        ).first()
         
         if overlap:
             raise HTTPException(
