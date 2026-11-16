@@ -46,34 +46,28 @@ def test_role_access_control(client):
     assert resp.status_code == 403
 
 @pytest.mark.asyncio
-async def test_booking_concurrency():
-    from tests.conftest import TestingSessionLocal
-    db = TestingSessionLocal()
-    
+async def test_booking_concurrency(client, db_session):
     client_user = User(email="concurrent_client@example.com", password=get_password_hash("password123"), role=UserRole.client)
-    db.add(client_user)
-    db.commit()
-    db.refresh(client_user)
+    db_session.add(client_user)
+    db_session.commit()
+    db_session.refresh(client_user)
 
     mechanic_user = User(email="concurrent_mech@example.com", password=get_password_hash("password123"), role=UserRole.mechanic)
-    db.add(mechanic_user)
-    db.commit()
-    db.refresh(mechanic_user)
+    db_session.add(mechanic_user)
+    db_session.commit()
+    db_session.refresh(mechanic_user)
 
     mechanic = Mechanic(user_id=mechanic_user.id, specialization="Brakes")
     service = Service(name="Brake Repair", duration_minutes=60, price=100.00)
-    db.add_all([mechanic, service])
-    db.commit()
-    db.refresh(mechanic)
-    db.refresh(service)
+    db_session.add_all([mechanic, service])
+    db_session.commit()
+    db_session.refresh(mechanic)
+    db_session.refresh(service)
     
     mech_id = mechanic.id
     serv_id = service.id
-    db.close()
 
-    from fastapi.testclient import TestClient
-    with TestClient(app) as tc:
-        token = get_auth_token(tc, "concurrent_client@example.com", "password123")
+    token = get_auth_token(client, "concurrent_client@example.com", "password123")
 
     headers = {"Authorization": f"Bearer {token}"}
     future_time = (datetime.now(UTC) + timedelta(days=2)).isoformat()

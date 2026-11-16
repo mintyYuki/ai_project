@@ -1,0 +1,13 @@
+    from tests.conftest import TestingSessionLocal
+    db = TestingSessionLocal()
+    
+    client_user = User(email="concurrent_client@example.com", password=get_password_hash("password123"), role=UserRole.client)
+    db.add(client_user)
+    db.commit()
+    db.refresh(client_user)
+...
+    db.close()
+
+    from fastapi.testclient import TestClient
+    with TestClient(app) as tc:
+        token = get_auth_token(tc, "concurrent_client@example.com", "password123")
