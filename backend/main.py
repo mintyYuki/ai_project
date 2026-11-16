@@ -229,8 +229,6 @@ def create_booking(
     end_at = start_at + timedelta(minutes=service.duration_minutes)
     
     try:
-        db.begin_nested()
-        
         existing_mechanic = db.query(Mechanic).filter(Mechanic.id == booking_data.mechanic_id).with_for_update().first()
         if not existing_mechanic:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mechanic not found")
@@ -462,8 +460,6 @@ def change_booking_status(
         )
         
     try:
-        db.begin_nested()
-        
         booking.status = new_status
         
         action_log = ActionLog(
@@ -509,7 +505,6 @@ def cancel_booking(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Cannot cancel booking in status {old_status}")
         
     try:
-        db.begin_nested()
         booking.status = BookingStatus.cancelled
         
         action_log = ActionLog(
