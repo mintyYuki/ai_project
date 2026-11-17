@@ -28,6 +28,7 @@ export function Register() {
         localStorage.setItem('user', JSON.stringify(user));
       }
 
+      window.dispatchEvent(new Event('auth-changed'));
       navigate('/');
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Ошибка регистрации');

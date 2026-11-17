@@ -43,13 +43,32 @@ export function CreateBooking() {
     setLoading(true);
 
     if (selectedService === '' || selectedMechanic === '' || !startAt) {
-      setError('Пожалуйста, заполните все поля');
+      setError('Пожалуйста, заполните все обязательные поля (услуга, механик, дата и время).');
+      setLoading(false);
+      return;
+    }
+
+    const startDate = new Date(startAt);
+    if (isNaN(startDate.getTime())) {
+      setError('Указана некорректная дата и время. Пожалуйста, проверьте формат ввода.');
+      setLoading(false);
+      return;
+    }
+
+    if (startDate.getFullYear() > 2100) {
+      setError('Указан недопустимый год (слишком далёкое будущее). Пожалуйста, выберите реальную дату до 2100 года.');
+      setLoading(false);
+      return;
+    }
+
+    if (startDate.getTime() < Date.now()) {
+      setError('Нельзя создать бронирование на прошедшее время. Пожалуйста, выберите будущую дату и время.');
       setLoading(false);
       return;
     }
 
     try {
-      const formattedStart = new Date(startAt).toISOString();
+      const formattedStart = startDate.toISOString();
       const response = await apiClient.post('/bookings', {
         service_id: Number(selectedService),
         mechanic_id: Number(selectedMechanic),
@@ -60,10 +79,16 @@ export function CreateBooking() {
         navigate('/bookings');
       }
     } catch (err: any) {
-      if (err.response?.status === 409) {
-        setError(err.response?.data?.detail || 'Выбранный механик уже занят в указанное время. Пожалуйста, выберите другое время или другого механика.');
+      const status = err.response?.status;
+      const detail = err.response?.data?.detail;
+      if (status === 409) {
+        setError(detail || 'Конфликт времени: выбранный механик уже занят в указанный интервал. Выберите другое время.');
+      } else if (status === 400) {
+        setError(detail || 'Ошибка валидации данных бронирования. Проверьте правильность введенных параметров.');
+      } else if (status === 404) {
+        setError(detail || 'Выбранная услуга или механик не найдены в базе данных.');
       } else {
-        setError(err.response?.data?.detail || 'Произошла ошибка при создании бронирования.');
+        setError(detail || `Не удалось создать бронирование (Код ошибки: ${status || 'неизвестен'}).`);
       }
     } finally {
       setLoading(false);

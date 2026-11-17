@@ -22,25 +22,45 @@ export function AdminReports() {
       }
 
       const res = await apiClient.get('/admin/reports', { params });
+      if (res.data && res.data.report) {
+        // Sort report alphabetically by service name
+        res.data.report.sort((a: any, b: any) => a.service_name.localeCompare(b.service_name));
+      }
       setReportData(res.data);
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Ошибка загрузки отчетов');
+      setError(err.response?.data?.detail || 'Не удалось загрузить отчеты администратора');
     }
   };
 
-  const handleExportCsv = () => {
-    let url = `${API_BASE_URL}/admin/reports/export-csv?`;
-    const queryParams = new URLSearchParams();
-    if (dateFrom) {
-      const [y, m, d] = dateFrom.split('-');
-      queryParams.append('date_from', `${d}-${m}-${y}`);
+  const handleExportCsv = async () => {
+    setError('');
+    try {
+      const params: any = {};
+      if (dateFrom) {
+        const [y, m, d] = dateFrom.split('-');
+        params.date_from = `${d}-${m}-${y}`;
+      }
+      if (dateTo) {
+        const [y, m, d] = dateTo.split('-');
+        params.date_to = `${d}-${m}-${y}`;
+      }
+
+      const response = await apiClient.get('/admin/reports/export-csv', {
+        params,
+        responseType: 'blob',
+      });
+
+      const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8;' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `report_${dateFrom || 'all'}_to_${dateTo || 'all'}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Не удалось экспортировать отчет в CSV');
     }
-    if (dateTo) {
-      const [y, m, d] = dateTo.split('-');
-      queryParams.append('date_to', `${d}-${m}-${y}`);
-    }
-    const token = localStorage.getItem('access_token');
-    window.open(`${url}${queryParams.toString()}&token=${token}`, '_blank');
   };
 
   return (

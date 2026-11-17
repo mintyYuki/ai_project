@@ -9,16 +9,50 @@ import { MechanicDashboard } from './pages/MechanicDashboard';
 import { AdminDashboard } from './pages/AdminDashboard';
 import './App.css';
 
+import { useEffect, useState } from 'react';
+
 function App() {
   const navigate = useNavigate();
-  const token = localStorage.getItem('access_token');
-  const userStr = localStorage.getItem('user');
-  const user = userStr ? JSON.parse(userStr) : null;
+  const [token, setToken] = useState(localStorage.getItem('access_token'));
+  const [user, setUser] = useState(() => {
+    const userStr = localStorage.getItem('user');
+    try {
+      return userStr ? JSON.parse(userStr) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  // Sync token and user state on storage changes or route navigation
+  useEffect(() => {
+    const handleStorageChange = () => {
+      const t = localStorage.getItem('access_token');
+      const uStr = localStorage.getItem('user');
+      setToken(t);
+      try {
+        setUser(uStr ? JSON.parse(uStr) : null);
+      } catch {
+        setUser(null);
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    // Custom event for immediate login/logout triggers within the same tab
+    window.addEventListener('auth-changed', handleStorageChange);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('auth-changed', handleStorageChange);
+    };
+  }, []);
 
   const handleLogout = () => {
     localStorage.removeItem('access_token');
     localStorage.removeItem('refresh_token');
     localStorage.removeItem('user');
+    setToken(null);
+    setUser(null);
+    window.dispatchEvent(new Event('auth-changed'));
     navigate('/login');
   };
 

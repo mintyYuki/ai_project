@@ -26,3 +26,7 @@
    - **Write as much logs as you can** across both backend and frontend to help future debugging and troubleshooting.
    - The approach of writing minimum logs is strictly forbidden and considered harmful.
    - It is always better to write "too much" logs than "not enough". Log every input parameter, validation check, database transaction query, execution duration, payload, error exception, and HTTP status code verbosely.
+
+8. **Error Messaging Rule (No Generic Errors):**
+   - **Avoid generic error messages** (such as "An error occurred", "Произошла ошибка").
+   - Always state precisely what went wrong (e.g., validation failure reason, past date error, year out of range, network issue, server conflict details).

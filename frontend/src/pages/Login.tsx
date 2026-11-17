@@ -26,6 +26,7 @@ export function Login() {
         localStorage.setItem('user', JSON.stringify(user));
       }
 
+      window.dispatchEvent(new Event('auth-changed'));
       navigate('/');
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Invalid email or password');

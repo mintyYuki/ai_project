@@ -52,6 +52,11 @@ export function MechanicPanel() {
       {error && <div className="error-banner">{error}</div>}
 
       <div className="bookings-list">
+        {bookings.length === 0 && date ? (
+          <p style={{ color: '#a8a8b3', fontStyle: 'italic', padding: '1rem 0' }}>
+            На выбранную дату ({date}) нет записей. Расписание свободно.
+          </p>
+        ) : null}
         {bookings.map((b) => (
           <div key={b.id} className="booking-item">
             <div>
