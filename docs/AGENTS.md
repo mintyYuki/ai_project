@@ -21,3 +21,8 @@
 
 6. **Illogical Prompts, Missing Details & False Statements:**
    - If the user says something illogical, or if the user states they will provide error text/details in a prompt but fails to do so (meaning details are missing), do not enable guessing. If you lack details that the user referred to, explicitly inform the user in the response file that they were forgotten.
+
+7. **Logging Rule (Mandatory & Strict):**
+   - **Write as much logs as you can** across both backend and frontend to help future debugging and troubleshooting.
+   - The approach of writing minimum logs is strictly forbidden and considered harmful.
+   - It is always better to write "too much" logs than "not enough". Log every input parameter, validation check, database transaction query, execution duration, payload, error exception, and HTTP status code verbosely.

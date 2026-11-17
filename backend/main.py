@@ -130,8 +130,10 @@ def read_root():
 
 @app.post("/api/auth/register", status_code=status.HTTP_201_CREATED)
 def register(user_data: UserRegister, db: Session = Depends(get_db)):
+    logger.info(f"[AUTH REGISTER DEBUG] Received registration request for email: {user_data.email} with role: {user_data.role}")
     existing_user = db.query(User).filter(User.email == user_data.email).first()
     if existing_user:
+        logger.warning(f"[AUTH REGISTER DEBUG] Registration failed: Email {user_data.email} is already registered.")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already registered"
@@ -146,13 +148,28 @@ def register(user_data: UserRegister, db: Session = Depends(get_db)):
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
+    logger.info(f"[AUTH REGISTER DEBUG] Successfully created user id={new_user.id} email={new_user.email} role={new_user.role}")
     
-    return {"message": "User registered successfully", "user_id": new_user.id, "email": new_user.email}
+    response_payload = {"message": "User registered successfully", "user_id": new_user.id, "email": new_user.email, "role": UserRole(new_user.role).value}
+    logger.info(f"[AUTH REGISTER DEBUG] Sending registration response: {response_payload}")
+    return response_payload
 
-@app.post("/api/auth/login", response_model=TokenResponse)
+@app.post("/api/auth/login", response_model=None)
 def login(credentials: UserLogin, db: Session = Depends(get_db)):
+    logger.info(f"[AUTH LOGIN DEBUG] Received login attempt for email: {credentials.email} with password length: {len(credentials.password)}")
     user = db.query(User).filter(User.email == credentials.email).first()
-    if not user or not verify_password(credentials.password, str(user.password)):
+    if not user:
+        logger.warning(f"[AUTH LOGIN DEBUG] Login failed: User with email {credentials.email} not found in database.")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    password_verified = verify_password(credentials.password, str(user.password))
+    logger.info(f"[AUTH LOGIN DEBUG] User found (id={user.id}, role={user.role}). Password verification result: {password_verified}")
+    if not password_verified:
+        logger.warning(f"[AUTH LOGIN DEBUG] Login failed: Password verification failed for email {credentials.email}.")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
@@ -161,6 +178,7 @@ def login(credentials: UserLogin, db: Session = Depends(get_db)):
     
     access_token = create_access_token(data={"sub": user.id, "role": UserRole(user.role).value})
     refresh_token_str = create_refresh_token(data={"sub": user.id})
+    logger.info(f"[AUTH LOGIN DEBUG] Generated access_token and refresh_token for user_id={user.id}")
     
     # Save refresh token hash in db
     token_hash = hash_token(refresh_token_str)
@@ -174,8 +192,9 @@ def login(credentials: UserLogin, db: Session = Depends(get_db)):
     )
     db.add(db_refresh_token)
     db.commit()
+    logger.info(f"[AUTH LOGIN DEBUG] Refresh token stored in database for user_id={user.id}")
     
-    return {
+    response_payload = {
         "access_token": access_token,
         "refresh_token": refresh_token_str,
         "token_type": "bearer",
@@ -185,6 +204,8 @@ def login(credentials: UserLogin, db: Session = Depends(get_db)):
             "role": UserRole(user.role).value
         }
     }
+    logger.info(f"[AUTH LOGIN DEBUG] Sending successful login response payload: {response_payload}")
+    return response_payload
 
 @app.post("/api/auth/refresh", response_model=TokenResponse)
 def refresh_token(body: RefreshRequest, db: Session = Depends(get_db)):
