@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { apiClient, API_BASE_URL } from '../api/client';
+import { apiClient } from '../api/client';
 
 export function AdminReports() {
   const [dateFrom, setDateFrom] = useState('');
@@ -23,8 +23,8 @@ export function AdminReports() {
 
       const res = await apiClient.get('/admin/reports', { params });
       if (res.data && res.data.report) {
-        // Sort report alphabetically by service name
-        res.data.report.sort((a: any, b: any) => a.service_name.localeCompare(b.service_name));
+        // Sort report ascending by service ID (or alphabetically by service_name if preferred)
+        res.data.report.sort((a: any, b: any) => a.service_id - b.service_id);
       }
       setReportData(res.data);
     } catch (err: any) {
