@@ -23,8 +23,8 @@ export function AdminReports() {
 
       const res = await apiClient.get('/admin/reports', { params });
       if (res.data && res.data.report) {
-        // Sort report ascending by service ID (or alphabetically by service_name if preferred)
-        res.data.report.sort((a: any, b: any) => a.service_id - b.service_id);
+        // Sort report rows numerically ascending by service_id
+        res.data.report.sort((a: any, b: any) => Number(a.service_id) - Number(b.service_id));
       }
       setReportData(res.data);
     } catch (err: any) {
@@ -45,6 +45,7 @@ export function AdminReports() {
         params.date_to = `${d}-${m}-${y}`;
       }
 
+      // Use apiClient so the Bearer Authorization header is correctly attached
       const response = await apiClient.get('/admin/reports/export-csv', {
         params,
         responseType: 'blob',
@@ -58,6 +59,7 @@ export function AdminReports() {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Не удалось экспортировать отчет в CSV');
     }
@@ -88,9 +90,31 @@ export function AdminReports() {
         <button type="button" onClick={handleExportCsv} className="btn-secondary">Экспорт в CSV</button>
       </form>
 
-      {reportData && (
-        <div className="report-results">
-          <pre>{JSON.stringify(reportData, null, 2)}</pre>
+      {reportData && reportData.report && (
+        <div className="report-results" style={{ backgroundColor: '#202024', padding: '1.5rem', borderRadius: '8px' }}>
+          <h3>Результаты отчета</h3>
+          <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '1rem' }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid #29292e', textAlign: 'left' }}>
+                <th style={{ padding: '0.75rem' }}>ID</th>
+                <th style={{ padding: '0.75rem' }}>Услуга</th>
+                <th style={{ padding: '0.75rem' }}>Цена</th>
+                <th style={{ padding: '0.75rem' }}>Всего броней</th>
+                <th style={{ padding: '0.75rem' }}>Доход</th>
+              </tr>
+            </thead>
+            <tbody>
+              {reportData.report.map((row: any) => (
+                <tr key={row.service_id} style={{ borderBottom: '1px solid #29292e' }}>
+                  <td style={{ padding: '0.75rem' }}>{row.service_id}</td>
+                  <td style={{ padding: '0.75rem' }}>{row.service_name}</td>
+                  <td style={{ padding: '0.75rem' }}>{row.service_price} ₽</td>
+                  <td style={{ padding: '0.75rem' }}>{row.total_bookings}</td>
+                  <td style={{ padding: '0.75rem' }}>{row.total_revenue} ₽</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>
