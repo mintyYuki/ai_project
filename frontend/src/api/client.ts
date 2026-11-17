@@ -21,9 +21,12 @@ apiClient.interceptors.request.use(
     }
 
     console.log(`[API Request] ${config.method?.toUpperCase()} ${config.url}`, {
+      baseURL: config.baseURL,
+      fullURL: `${config.baseURL || ''}${config.url}`,
       params: config.params,
       data: config.data,
       headers: config.headers,
+      tokenAttached: !!token,
     });
 
     return config;

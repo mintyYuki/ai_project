@@ -10,6 +10,7 @@ export function AdminReports() {
   const handleFetchReport = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    console.log('[AdminReports] Fetching report with params:', { dateFrom, dateTo });
     try {
       const params: any = {};
       if (dateFrom) {
@@ -22,18 +23,23 @@ export function AdminReports() {
       }
 
       const res = await apiClient.get('/admin/reports', { params });
+      console.log('[AdminReports] Raw report response data:', res.data);
+
       if (res.data && res.data.report) {
-        // Enforce explicit numerical sorting by service_id ascending
+        console.log('[AdminReports] Before sorting report rows:', res.data.report.map((r: any) => r.service_id));
         res.data.report.sort((a: any, b: any) => Number(a.service_id) - Number(b.service_id));
+        console.log('[AdminReports] After sorting report rows by service_id ascending:', res.data.report.map((r: any) => r.service_id));
       }
       setReportData(res.data);
     } catch (err: any) {
+      console.error('[AdminReports] Failed to fetch report:', err);
       setError(err.response?.data?.detail || 'Не удалось загрузить отчеты администратора');
     }
   };
 
   const handleExportCsv = async () => {
     setError('');
+    console.log('[AdminReports] Exporting CSV with params:', { dateFrom, dateTo });
     try {
       const params: any = {};
       if (dateFrom) {
@@ -49,6 +55,7 @@ export function AdminReports() {
         params,
         responseType: 'blob',
       });
+      console.log('[AdminReports] CSV export response received successfully:', response);
 
       const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8;' });
       const url = window.URL.createObjectURL(blob);
@@ -60,6 +67,7 @@ export function AdminReports() {
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
     } catch (err: any) {
+      console.error('[AdminReports] Failed to export CSV:', err, err.response);
       setError(err.response?.data?.detail || 'Не удалось экспортировать отчет в CSV');
     }
   };
