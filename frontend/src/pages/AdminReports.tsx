@@ -23,7 +23,7 @@ export function AdminReports() {
 
       const res = await apiClient.get('/admin/reports', { params });
       if (res.data && res.data.report) {
-        // Sort report rows numerically ascending by service_id
+        // Enforce explicit numerical sorting by service_id ascending
         res.data.report.sort((a: any, b: any) => Number(a.service_id) - Number(b.service_id));
       }
       setReportData(res.data);
@@ -45,7 +45,6 @@ export function AdminReports() {
         params.date_to = `${d}-${m}-${y}`;
       }
 
-      // Use apiClient so the Bearer Authorization header is correctly attached
       const response = await apiClient.get('/admin/reports/export-csv', {
         params,
         responseType: 'blob',
