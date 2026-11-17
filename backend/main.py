@@ -468,7 +468,7 @@ def _fetch_admin_report_data(db: Session, start_dt: Optional[datetime], end_dt: 
     ).select_from(Service).outerjoin(
         Booking,
         and_(*booking_on_clauses)
-    ).group_by(Service.id, Service.name, Service.price)
+    ).group_by(Service.id, Service.name, Service.price).order_by(Service.id.asc())
 
     results = query.all()
     report_data = []
