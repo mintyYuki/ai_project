@@ -178,7 +178,12 @@ def login(credentials: UserLogin, db: Session = Depends(get_db)):
     return {
         "access_token": access_token,
         "refresh_token": refresh_token_str,
-        "token_type": "bearer"
+        "token_type": "bearer",
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "role": UserRole(user.role).value
+        }
     }
 
 @app.post("/api/auth/refresh", response_model=TokenResponse)
@@ -232,7 +237,12 @@ def refresh_token(body: RefreshRequest, db: Session = Depends(get_db)):
     return {
         "access_token": new_access_token,
         "refresh_token": new_refresh_token_str,
-        "token_type": "bearer"
+        "token_type": "bearer",
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "role": UserRole(user.role).value
+        }
     }
 
 @app.post("/api/auth/logout")

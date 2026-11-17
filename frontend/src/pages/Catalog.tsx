@@ -7,6 +7,7 @@ export function Catalog() {
   const [services, setServices] = useState<Service[]>([]);
   const [mechanics, setMechanics] = useState<Mechanic[]>([]);
   const [error, setError] = useState('');
+  const [warningMessage, setWarningMessage] = useState('');
 
   const userStr = localStorage.getItem('user');
   const user = userStr ? JSON.parse(userStr) : null;
@@ -47,6 +48,7 @@ export function Catalog() {
       </div>
 
       {error && <div className="error-banner">{error}</div>}
+      {warningMessage && <div className="error-banner" style={{ backgroundColor: 'rgba(247, 186, 90, 0.15)', color: '#f7ba5a' }}>{warningMessage}</div>}
 
       <div className="grid">
         <div className="card-list">
@@ -58,10 +60,12 @@ export function Catalog() {
               style={{ cursor: user?.role === 'client' ? 'pointer' : 'default' }}
               onClick={() => {
                 console.log('[Catalog] Service card clicked:', s);
-                if (user?.role === 'client') {
-                  window.location.href = `/bookings/new?service_id=${s.id}`;
+                if (!user) {
+                  setWarningMessage('Пожалуйста, войдите в систему как клиент, чтобы создавать бронирования.');
+                } else if (user.role !== 'client') {
+                  setWarningMessage(`Действие недоступно для вашей роли (${user.role}). Только клиенты могут создавать бронирования.`);
                 } else {
-                  console.log('[Catalog] Non-client role or unauthenticated user clicked service card. Action ignored.');
+                  window.location.href = `/bookings/new?service_id=${s.id}`;
                 }
               }}
             >
@@ -81,7 +85,7 @@ export function Catalog() {
         <div className="card-list">
           <h3>Наши механики</h3>
           {mechanics.map((m) => (
-            <div key={m.id} className="item-card">
+            <div key={m.id} className="item-card" style={{ cursor: 'default' }}>
               <h4>Механик #{m.id}</h4>
               <p>Специализация: {m.specialization}</p>
             </div>
