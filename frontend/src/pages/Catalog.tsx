@@ -10,7 +10,18 @@ export function Catalog() {
   const [warningMessage, setWarningMessage] = useState('');
 
   const userStr = localStorage.getItem('user');
-  const user = userStr ? JSON.parse(userStr) : null;
+  let user = null;
+  try {
+    user = userStr ? JSON.parse(userStr) : null;
+  } catch (parseErr) {
+    console.error('[Catalog] Failed to parse user from localStorage:', parseErr, 'Raw string:', userStr);
+  }
+
+  console.log('[Catalog] Current auth state inspected:', {
+    rawUserStr: userStr,
+    parsedUser: user,
+    accessToken: localStorage.getItem('access_token') ? 'PRESENT' : 'MISSING',
+  });
 
   useEffect(() => {
     let isMounted = true;
@@ -59,12 +70,15 @@ export function Catalog() {
               className="item-card clickable"
               style={{ cursor: user?.role === 'client' ? 'pointer' : 'default' }}
               onClick={() => {
-                console.log('[Catalog] Service card clicked:', s);
+                console.log('[Catalog] Service card clicked:', s, 'Current user object in scope:', user, 'Raw localStorage user:', localStorage.getItem('user'));
                 if (!user) {
+                  console.warn('[Catalog] Action blocked: user is unauthenticated or user object is missing in localStorage.');
                   setWarningMessage('Пожалуйста, войдите в систему как клиент, чтобы создавать бронирования.');
                 } else if (user.role !== 'client') {
+                  console.warn(`[Catalog] Action blocked: user role is '${user.role}', but 'client' is required.`);
                   setWarningMessage(`Действие недоступно для вашей роли (${user.role}). Только клиенты могут создавать бронирования.`);
                 } else {
+                  console.log('[Catalog] Action allowed: navigating to create booking for service ID:', s.id);
                   window.location.href = `/bookings/new?service_id=${s.id}`;
                 }
               }}
